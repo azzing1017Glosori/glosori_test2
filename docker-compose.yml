@@ -1,0 +1,67 @@
+# docker-compose.yml
+version: '3.8'
+
+networks:
+  glosori-network:
+    driver: bridge
+
+services:
+  database:
+    container_name: glosori_database
+    restart: always
+    build:
+      context: ./database
+      dockerfile: Dockerfile
+    ports:
+      - "27017:27017"
+    networks:
+      - glosori-network
+    volumes:
+      - ./database_data:/data/db  
+      - ./database/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+
+  backend:
+    container_name: glosori_backend
+    restart: always
+    build:
+      context: ./backend/
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app:/app
+      # - ./backend/ssl:/etc/ssl  # SSL 인증서 볼륨 마운트
+    working_dir: /app
+    environment:
+      PYTHONPATH: /app
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+              device_ids: ["0"]
+    depends_on:
+      - database
+    networks:
+      - glosori-network
+    # command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--ssl-keyfile", "/etc/ssl/private/privkey.pem", "--ssl-certfile", "/etc/ssl/certs/fullchain.pem", "--reload"]
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+  
+  frontend:
+    container_name: glosori_frontend
+    restart: always
+    build:
+      context: ./frontend/
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    stdin_open: true
+    volumes:
+      - ./frontend:/usr/src/app
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - PORT=3000
+    depends_on:
+      - backend
+    networks:
+      - glosori-network
